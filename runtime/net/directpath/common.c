@@ -15,6 +15,13 @@ struct pci_addr nic_pci_addr;
 bool cfg_pci_addr_specified;
 bool cfg_directpath_enabled;
 
+enum {
+	RX_MODE_FLOW_STEERING = 0,
+	RX_MODE_QUEUE_STEERING,
+};
+
+int directpath_mode;
+
 struct mempool directpath_buf_mp;
 struct tcache *directpath_buf_tcache;
 DEFINE_PERTHREAD(struct tcache_perthread, directpath_buf_pt);
@@ -110,8 +117,13 @@ int directpath_init(void)
 	if (ret)
 		return ret;
 
-	/* initialize mlx5 */
-	ret = mlx5_init(rxq_out, txq_out, maxks, maxks);
+	directpath_mode = RX_MODE_FLOW_STEERING;
+	ret = mlx5_init_flow_steering(rxq_out, txq_out, maxks, maxks);
+	if (ret) {
+		directpath_mode = RX_MODE_QUEUE_STEERING;
+		ret = mlx5_init_queue_steering(rxq_out, txq_out, maxks, maxks);
+	}
+
 	if (ret)
 		return ret;
 
@@ -143,7 +155,7 @@ int directpath_init_thread(void)
 		rxq->descriptor_table, (1 << hs->descriptor_log_size) * hs->nr_descriptors);
 	hs->parity_byte_offset = rxq->parity_byte_offset;
 	hs->parity_bit_mask = rxq->parity_bit_mask;
-	hs->hwq_type = HWQ_MLX5;
+	hs->hwq_type = (directpath_mode == RX_MODE_FLOW_STEERING) ? HWQ_MLX5 : HWQ_MLX5_QSTEERING;
 	hs->consumer_idx = ptr_to_shmptr(&netcfg.tx_region, rxq->shadow_tail, sizeof(uint32_t));
 
 	k->directpath_rxq = rxq;

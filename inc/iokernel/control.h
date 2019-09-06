@@ -45,6 +45,7 @@ struct congestion_info {
 enum {
 	HWQ_INVALID = 0,
 	HWQ_MLX5,
+	HWQ_MLX5_QSTEERING,
 	HWQ_SPDK_NVME,
 	NR_HWQ,
 };
