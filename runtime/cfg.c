@@ -314,6 +314,7 @@ static int parse_enable_directpath(const char *name, const char *val)
 {
 #ifdef DIRECTPATH
 	cfg_directpath_enabled = true;
+	strncpy(directpath_arg, val, sizeof(directpath_arg));
 	return 0;
 #else
 	log_err("cfg: cannot enable directpath, "

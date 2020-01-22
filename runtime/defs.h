@@ -549,6 +549,7 @@ extern struct net_driver_ops net_ops;
 #ifdef DIRECTPATH
 
 extern bool cfg_directpath_enabled;
+extern char directpath_arg[128];
 struct direct_txq {};
 
 static inline bool rx_pending(struct hardware_q *rxq)
