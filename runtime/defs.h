@@ -21,6 +21,7 @@
 #include <runtime/runtime.h>
 #include <runtime/thread.h>
 #include <runtime/rcu.h>
+#include <runtime/rculist.h>
 #include <runtime/preempt.h>
 
 
@@ -242,6 +243,11 @@ struct hardware_q {
 	uint32_t	nr_descriptors;
 	uint32_t	parity_byte_offset;
 	uint32_t	parity_bit_mask;
+
+	/* queue steering support */
+	struct rcu_hlist_head head;
+	struct rcu_hlist_node link;
+	spinlock_t lock;
 };
 
 static inline bool hardware_q_pending(struct hardware_q *q)

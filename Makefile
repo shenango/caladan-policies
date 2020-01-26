@@ -24,7 +24,7 @@ $(iokernel_obj): INC += -I$(DPDK_PATH)/build/include
 # runtime - a user-level threading and networking library
 runtime_src = $(wildcard runtime/*.c) $(wildcard runtime/net/*.c)
 runtime_src += $(wildcard runtime/net/directpath/*.c)
-runtime_src += $(wildcard runtime/net/directpath/mlx5/*.c)
+runtime_src += $(wildcard runtime/net/directpath/*/*.c)
 runtime_src += $(wildcard runtime/rpc/*.c)
 runtime_asm = $(wildcard runtime/*.S)
 runtime_obj = $(runtime_src:.c=.o) $(runtime_asm:.S=.o)

@@ -27,7 +27,7 @@ RUNTIME_LIBS = $(ROOT_PATH)/libruntime.a $(ROOT_PATH)/libnet.a \
 # mlx5 build
 MLX5_INC = -I$(ROOT_PATH)/rdma-core/build/include
 MLX5_LIBS = -L$(ROOT_PATH)/rdma-core/build/lib/statics/
-MLX5_LIBS += -lmlx5 -libverbs -lnl-3 -lnl-route-3
+MLX5_LIBS += -lmlx4 -lmlx5 -libverbs -lnl-3 -lnl-route-3
 
 # parse configuration options
 ifeq ($(CONFIG_DEBUG),y)

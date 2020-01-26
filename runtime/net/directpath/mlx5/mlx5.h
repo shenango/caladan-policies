@@ -17,11 +17,6 @@ struct mlx5_rxq {
 	/* handle for runtime */
 	struct hardware_q rxq;
 
-	/* queue steering mode */
-	struct rcu_hlist_head head;
-	struct rcu_hlist_node link;
-	spinlock_t lock;
-
 	uint32_t consumer_idx;
 
 	struct mlx5dv_cq rx_cq_dv;

@@ -21,7 +21,13 @@ enum {
 	RX_MODE_QUEUE_STEERING,
 };
 
+enum {
+	DRIVER_MLX5 = 0,
+	DRIVER_MLX4,
+};
+
 int directpath_mode;
+int directpath_driver;
 
 struct mempool directpath_buf_mp;
 struct tcache *directpath_buf_tcache;
@@ -118,6 +124,7 @@ int directpath_init(void)
 	if (ret)
 		return ret;
 
+	directpath_driver = DRIVER_MLX5;
 	if (strncmp("qs", directpath_arg, 2) != 0) {
 		directpath_mode = RX_MODE_FLOW_STEERING;
 		ret = mlx5_init_flow_steering(rxq_out, txq_out, maxks, maxks);
@@ -134,6 +141,14 @@ int directpath_init(void)
 			log_err("directpath_init: selected queue steering mode");
 			return 0;
 		}
+	}
+
+	directpath_driver = DRIVER_MLX4;
+	directpath_mode = RX_MODE_QUEUE_STEERING;
+	ret = mlx4_init(rxq_out, txq_out, maxks, maxks);
+	if (ret == 0) {
+		log_err("directpath_init: selected mlx4");
+		return 0;
 	}
 
 	log_err("Could not intialize directpath, ret = %d", ret);
