@@ -1,0 +1,79 @@
+From 9c48848351affc019f9abec49c97f7d6739adacf Mon Sep 17 00:00:00 2001
+From: Amy Ousterhout <amy.ousterhout@berkeley.edu>
+Date: Thu, 15 Apr 2021 11:56:46 -0700
+Subject: [PATCH] performance tweaks for i40e and ice drivers, skip error when
+ flow exists
+
+---
+ drivers/net/i40e/i40e_ethdev.h    | 2 +-
+ drivers/net/ice/ice_ethdev.c      | 6 +++---
+ drivers/net/ice/ice_fdir_filter.c | 8 ++++----
+ 3 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/i40e/i40e_ethdev.h b/drivers/net/i40e/i40e_ethdev.h
+index 295ad593b..d6afb196f 100644
+--- a/drivers/net/i40e/i40e_ethdev.h
++++ b/drivers/net/i40e/i40e_ethdev.h
+@@ -182,7 +182,7 @@ enum i40e_flxpld_layer_idx {
+ /* Default queue interrupt throttling time in microseconds */
+ #define I40E_ITR_INDEX_DEFAULT          0
+ #define I40E_ITR_INDEX_NONE             3
+-#define I40E_QUEUE_ITR_INTERVAL_DEFAULT 32 /* 32 us */
++#define I40E_QUEUE_ITR_INTERVAL_DEFAULT 0 /* 32 us */
+ #define I40E_QUEUE_ITR_INTERVAL_MAX     8160 /* 8160 us */
+ #define I40E_VF_QUEUE_ITR_INTERVAL_DEFAULT 32 /* 32 us */
+ /* Special FW support this floating VEB feature */
+diff --git a/drivers/net/ice/ice_ethdev.c b/drivers/net/ice/ice_ethdev.c
+index de189daba..9d643d3fc 100644
+--- a/drivers/net/ice/ice_ethdev.c
++++ b/drivers/net/ice/ice_ethdev.c
+@@ -2598,14 +2598,14 @@ __vsi_queues_bind_intr(struct ice_vsi *vsi, uint16_t msix_vect,
+ 	for (i = 0; i < nb_queue; i++) {
+ 		/*do actual bind*/
+ 		val = (msix_vect & QINT_RQCTL_MSIX_INDX_M) |
+-		      (0 < QINT_RQCTL_ITR_INDX_S) | QINT_RQCTL_CAUSE_ENA_M;
++		      (0 << QINT_RQCTL_ITR_INDX_S) | QINT_RQCTL_CAUSE_ENA_M;
+ 		val_tx = (msix_vect & QINT_TQCTL_MSIX_INDX_M) |
+-			 (0 < QINT_TQCTL_ITR_INDX_S) | QINT_TQCTL_CAUSE_ENA_M;
++			 (0 << QINT_TQCTL_ITR_INDX_S) | QINT_TQCTL_CAUSE_ENA_M;
+ 
+ 		PMD_DRV_LOG(INFO, "queue %d is binding to vect %d",
+ 			    base_queue + i, msix_vect);
+ 		/* set ITR0 value */
+-		ICE_WRITE_REG(hw, GLINT_ITR(0, msix_vect), 0x10);
++		ICE_WRITE_REG(hw, GLINT_ITR(0, msix_vect), 0x1);
+ 		ICE_WRITE_REG(hw, QINT_RQCTL(base_queue + i), val);
+ 		ICE_WRITE_REG(hw, QINT_TQCTL(base_queue + i), val_tx);
+ 	}
+diff --git a/drivers/net/ice/ice_fdir_filter.c b/drivers/net/ice/ice_fdir_filter.c
+index fa8707455..8553df6e6 100644
+--- a/drivers/net/ice/ice_fdir_filter.c
++++ b/drivers/net/ice/ice_fdir_filter.c
+@@ -1198,20 +1198,20 @@ ice_fdir_create_filter(struct ice_adapter *ad,
+ {
+ 	struct ice_pf *pf = &ad->pf;
+ 	struct ice_fdir_filter_conf *filter = meta;
+-	struct ice_fdir_info *fdir_info = &pf->fdir;
+-	struct ice_fdir_filter_conf *entry, *node;
++//	struct ice_fdir_info *fdir_info = &pf->fdir;
++	struct ice_fdir_filter_conf *entry;//, *node;
+ 	struct ice_fdir_fltr_pattern key;
+ 	bool is_tun;
+ 	int ret;
+ 
+ 	ice_fdir_extract_fltr_key(&key, filter);
+-	node = ice_fdir_entry_lookup(fdir_info, &key);
++	/*node = ice_fdir_entry_lookup(fdir_info, &key);
+ 	if (node) {
+ 		rte_flow_error_set(error, EEXIST,
+ 				   RTE_FLOW_ERROR_TYPE_HANDLE, NULL,
+ 				   "Rule already exists!");
+ 		return -rte_errno;
+-	}
++		}*/
+ 
+ 	entry = rte_zmalloc("fdir_entry", sizeof(*entry), 0);
+ 	if (!entry) {
+-- 
+2.27.0
+
