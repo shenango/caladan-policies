@@ -151,7 +151,7 @@ static int mlx4_create_rxq(int index, int rwq_wqn_alignment)
 	wq = &v->rx_wq_dv;
 	for (i = 0; i < wq->rq.wqe_cnt; i++) {
 		seg = wq->buf.buf + wq->rq.offset + (i << wq->rq.wqe_shift);
-		seg->byte_count =  htobe32(MBUF_DEFAULT_LEN - RX_BUF_RESERVED);
+		seg->byte_count =  htobe32(MBUF_DEFAULT_LEN - RX_BUF_HEAD);
 		seg->lkey = htobe32(mr_rx->lkey);
 
 		/* fill queue with buffers */
@@ -159,7 +159,7 @@ static int mlx4_create_rxq(int index, int rwq_wqn_alignment)
 		if (!buf)
 			return -ENOMEM;
 
-		seg->addr = htobe64((unsigned long)buf + RX_BUF_RESERVED);
+		seg->addr = htobe64((unsigned long)buf + RX_BUF_HEAD);
 		v->buffers[i] = buf;
 		v->wq_head++;
 	}

@@ -36,7 +36,7 @@ static inline int mlx4_refill_rxqueue(struct mlx4_rxq *vq, int nrdesc)
 
 		index = vq->wq_head++ & (wq->rq.wqe_cnt - 1);
 		seg = wq->buf.buf + wq->rq.offset + (index << wq->rq.wqe_shift);
-		seg->addr = htobe64((unsigned long)buf + RX_BUF_RESERVED);
+		seg->addr = htobe64((unsigned long)buf + RX_BUF_HEAD);
 		vq->buffers[index] = buf;
 	}
 
@@ -142,7 +142,7 @@ static inline void mbuf_fill_cqe(struct mbuf *m, struct mlx4_cqe *cqe)
 
 	len = be32toh(cqe->byte_cnt);
 
-	mbuf_init(m, (unsigned char *)m + RX_BUF_RESERVED, len, 0);
+	mbuf_init(m, (unsigned char *)m + RX_BUF_HEAD, len, 0);
 	m->len = len;
 
 	m->csum_type = mlx4_csum_ok(cqe);
