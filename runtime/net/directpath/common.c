@@ -24,6 +24,7 @@ enum {
 enum {
 	DRIVER_MLX5 = 0,
 	DRIVER_MLX4,
+	DRIVER_ICE,
 };
 
 int directpath_mode;
@@ -32,6 +33,10 @@ int directpath_driver;
 struct mempool directpath_buf_mp;
 struct tcache *directpath_buf_tcache;
 DEFINE_PERTHREAD(struct tcache_perthread, directpath_buf_pt);
+
+/* buffer that backs the mbuf pool */
+void *rx_buf;
+size_t rx_len;
 
 static int parse_directpath_pci(const char *name, const char *val)
 {
@@ -71,8 +76,6 @@ void directpath_rx_completion(struct mbuf *m)
 static int rx_memory_init(void)
 {
 	int ret;
-	size_t rx_len;
-	void *rx_buf;
 
 	rx_len = directpath_rx_buf_pool_sz(maxks);
 	rx_buf = mem_map_anom(NULL, rx_len, PGSIZE_2MB, 0);
@@ -117,6 +120,14 @@ int directpath_init(void)
 {
 	int ret;
 
+#if (defined(DIRECTPATH) && defined(ICE))
+	// TEMP: until queues are initialized by runtimes with ICE
+	if (!cfg_directpath_enabled) {
+		log_err("directpath_init: with ICE NIC, must enable directpath or compile without it");
+		return -EINVAL;
+	}
+#endif
+
 	if (!cfg_directpath_enabled)
 		return 0;
 
@@ -124,6 +135,7 @@ int directpath_init(void)
 	if (ret)
 		return ret;
 
+#ifdef MLX5
 	directpath_driver = DRIVER_MLX5;
 	if (strncmp("qs", directpath_arg, 2) != 0) {
 		directpath_mode = RX_MODE_FLOW_STEERING;
@@ -142,7 +154,9 @@ int directpath_init(void)
 			return 0;
 		}
 	}
+#endif
 
+#ifdef MLX4
 	directpath_driver = DRIVER_MLX4;
 	directpath_mode = RX_MODE_QUEUE_STEERING;
 	ret = mlx4_init(rxq_out, txq_out, maxks, maxks);
@@ -150,8 +164,19 @@ int directpath_init(void)
 		log_err("directpath_init: selected mlx4");
 		return 0;
 	}
+#endif
 
-	log_err("Could not intialize directpath, ret = %d", ret);
+#ifdef ICE
+	directpath_driver = ICE;
+	directpath_mode = RX_MODE_QUEUE_STEERING;
+	ret = ice_init(rxq_out, txq_out, maxks, maxks, rx_buf, rx_len);
+	if (ret == 0) {
+		log_err("directpath_init: selected ice");
+		return 0;
+	}
+#endif
+
+	log_err("Could not initialize directpath, ret = %d", ret);
 
 	return ret ? ret : -EINVAL;
 
@@ -177,8 +202,17 @@ int directpath_init_thread(void)
 
 	hs->descriptor_log_size = rxq->descriptor_log_size;
 	hs->nr_descriptors = rxq->nr_descriptors;
+
+#ifdef ICE
+	/* TEMP, RX descriptor queues are set up by iokernel with fixed known
+	   addresses for now */
+	hs->descriptor_table = (shmptr_t) rxq->descriptor_table;
+#else
 	hs->descriptor_table = ptr_to_shmptr(&netcfg.tx_region,
-		rxq->descriptor_table, (1 << hs->descriptor_log_size) * hs->nr_descriptors);
+					     rxq->descriptor_table,
+					     (1 << hs->descriptor_log_size) *
+					     hs->nr_descriptors);
+#endif
 	hs->parity_byte_offset = rxq->parity_byte_offset;
 	hs->parity_bit_mask = rxq->parity_bit_mask;
 	hs->hwq_type = (directpath_mode == RX_MODE_FLOW_STEERING) ? HWQ_MLX5 : HWQ_MLX5_QSTEERING;

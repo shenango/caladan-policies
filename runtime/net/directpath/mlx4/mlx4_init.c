@@ -1,5 +1,5 @@
 
-#ifdef DIRECTPATH
+#if (defined(DIRECTPATH) && defined(MLX4))
 
 #include <base/log.h>
 #include <base/mempool.h>

@@ -104,6 +104,7 @@ struct thread {
 	struct list_node	idle_link;
 };
 
+#ifndef ICE
 static inline bool hwq_busy(struct hwq *h, uint32_t cq_idx)
 {
 	uint32_t idx, parity, hd_parity;
@@ -116,6 +117,19 @@ static inline bool hwq_busy(struct hwq *h, uint32_t cq_idx)
 
 	return parity == hd_parity;
 }
+#else
+static inline bool hwq_busy(struct hwq *h, uint32_t cq_idx)
+{
+	uint32_t idx;
+	unsigned char *addr;
+
+	idx = cq_idx & (h->nr_descriptors - 1);
+	addr = h->descriptor_table + (idx << h->descriptor_log_size) +
+		h->parity_byte_offset;
+
+	return !!(ACCESS_ONCE(*addr) & h->parity_bit_mask);
+}
+#endif
 
 struct proc {
 	pid_t			pid;

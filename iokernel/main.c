@@ -100,7 +100,10 @@ void dataplane_loop(void)
 		work_done = false;
 
 		/* handle a burst of ingress packets */
+		/* TEMP: skip this for ICE until the iokernel has its own separate queue */
+#if (!defined(DIRECTPATH) || !defined(ICE))
 		work_done |= rx_burst();
+#endif
 
 		/* adjust core assignments */
 		sched_poll();

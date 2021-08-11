@@ -265,6 +265,20 @@ static inline bool hardware_q_pending(struct hardware_q *q)
 	return parity == hd_parity;
 }
 
+/* same as hardware_q_pending but for queues that don't use parity bits (e.g.,
+ ICE NIC queues) */
+static inline bool hardware_q_pending_no_parity(struct hardware_q *q)
+{
+	uint32_t tail, idx;
+	unsigned char *addr;
+
+	tail = ACCESS_ONCE(*q->consumer_idx);
+	idx = tail & (q->nr_descriptors - 1);
+	addr = q->descriptor_table + (idx << q->descriptor_log_size) +
+		q->parity_byte_offset;
+	return !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
+}
+
 
 /*
  * Storage support

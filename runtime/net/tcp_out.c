@@ -22,7 +22,9 @@ static uint16_t tcp_hdr_chksum(uint32_t local_ip, uint32_t remote_ip,
 			       uint16_t len)
 {
 
-#ifdef DIRECTPATH
+	/* MLX NICs do not seem to require the pseudo header for TCP checksum
+	   offload */
+#if (defined(DIRECTPATH) && (defined(MLX4) || defined(MLX5)))
 	if (cfg_directpath_enabled)
 		return 0;
 #endif

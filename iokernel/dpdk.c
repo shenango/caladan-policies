@@ -52,6 +52,9 @@
 #define MLX5_RX_RING_SIZE 2048
 #define MLX5_TX_RING_SIZE 2048
 
+#define ICE_RX_RING_SIZE 1024
+#define ICE_TX_RING_SIZE 1024
+
 char *nic_pci_addr_str;
 struct pci_addr nic_pci_addr;
 
@@ -79,7 +82,12 @@ static const struct rte_eth_conf port_conf_default = {
 static inline int dpdk_port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 {
 	struct rte_eth_conf port_conf = port_conf_default;
+
+#if (defined(DIRECTPATH) && defined(ICE))
+	const uint16_t rx_rings = 64, tx_rings = 64;
+#else
 	const uint16_t rx_rings = 1, tx_rings = 1;
+#endif
 	uint16_t nb_rxd = RX_RING_SIZE;
 	uint16_t nb_txd = TX_RING_SIZE;
 	int retval;
@@ -103,6 +111,9 @@ static inline int dpdk_port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	if (!strncmp(dev_info.driver_name, "net_mlx5", 8)) {
 		nb_rxd = MLX5_RX_RING_SIZE;
 		nb_txd = MLX5_TX_RING_SIZE;
+	} else if (!strncmp(dev_info.driver_name, "net_ice", 7)) {
+		nb_rxd = ICE_RX_RING_SIZE;
+		nb_txd = ICE_TX_RING_SIZE;
 	}
 
 	/* Configure the Ethernet device. */
@@ -151,7 +162,10 @@ static inline int dpdk_port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 			addr.addr_bytes[4], addr.addr_bytes[5]);
 
 	/* Enable RX in promiscuous mode for the Ethernet device. */
-	rte_eth_promiscuous_enable(port);
+	retval = rte_eth_promiscuous_enable(port);
+	if (retval)
+		log_warn("WARNING: enabling promiscuous mode failed: %d", retval);
+
 #if 0
 	/* record the RSS hash key */
 	rss_conf.rss_key = iok_info->rss_key;
@@ -162,7 +176,7 @@ static inline int dpdk_port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 			return retval;
 
 		if (rss_conf.rss_key_len != ARRAY_SIZE(iok_info->rss_key)) {
-			log_warn("WARNING: unexpected key length %d, advanced flow steering may not work");
+			log_warn("WARNING: unexpected key length, advanced flow steering may not work");
 		}
 	}
 #endif

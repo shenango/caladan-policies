@@ -2,7 +2,7 @@
 #include <base/log.h>
 #include <runtime/preempt.h>
 
-#ifdef DIRECTPATH
+#if (defined(DIRECTPATH) && defined(MLX5))
 
 #include <util/mmio.h>
 #include <util/udma_barrier.h>

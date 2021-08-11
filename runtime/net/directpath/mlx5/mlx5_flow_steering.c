@@ -1,7 +1,7 @@
 #include <base/log.h>
 #include <runtime/sync.h>
 
-#ifdef DIRECTPATH
+#if (defined(DIRECTPATH) && defined(MLX5))
 
 #include "mlx5.h"
 #include "mlx5_ifc.h"

@@ -1,5 +1,5 @@
 
-#ifdef DIRECTPATH
+#if (defined(DIRECTPATH) && (defined(MLX4) || defined(MLX5)))
 
 #include <infiniband/verbs.h>
 #include "../../defs.h"

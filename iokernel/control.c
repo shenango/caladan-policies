@@ -69,7 +69,12 @@ static int control_init_hwq(struct shm_region *r,
 		return 0;
 	}
 
+#if (defined(DIRECTPATH) && defined(ICE))
+	// TEMP: until RX queues are set up by runtimes
+	h->descriptor_table = (void *) hs->descriptor_table;
+#else
 	h->descriptor_table = shmptr_to_ptr(r, hs->descriptor_table, (1 << hs->descriptor_log_size) * hs->nr_descriptors);
+#endif
 	h->consumer_idx = shmptr_to_ptr(r, hs->consumer_idx, sizeof(*h->consumer_idx));
 	h->descriptor_log_size = hs->descriptor_log_size;
 	h->nr_descriptors = hs->nr_descriptors;
@@ -524,8 +529,15 @@ int control_init(void)
 
 	BUILD_ASSERT(strlen(CONTROL_SOCK_PATH) <= sizeof(addr.sun_path) - 1);
 
+#if (defined(DIRECTPATH) && defined(ICE))
+	/* TEMP: map memory at a fixed address until queue initialization is
+	 done properly by the runtimes */
+	shbuf = mem_map_shm(INGRESS_MBUF_SHM_KEY, (void *) 0x7fddaea00000, INGRESS_MBUF_SHM_SIZE,
+			PGSIZE_2MB, true);
+#else
 	shbuf = mem_map_shm(INGRESS_MBUF_SHM_KEY, NULL, INGRESS_MBUF_SHM_SIZE,
 			PGSIZE_2MB, true);
+#endif
 	if (shbuf == MAP_FAILED) {
 		log_err("control: failed to map rx buffer area (%s)", strerror(errno));
 		if (errno == EEXIST)

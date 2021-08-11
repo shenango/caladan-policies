@@ -188,9 +188,16 @@ int ioqueues_init(void)
 	iok.key = rand_crc32c(iok.key);
 
 	/* map ingress memory */
+#if (defined(DIRECTPATH) && defined(ICE))
+	/* TEMP until runtimes initialize their own queues */
+	netcfg.rx_region.base =
+	    mem_map_shm(INGRESS_MBUF_SHM_KEY, NULL, INGRESS_MBUF_SHM_SIZE,
+		    PGSIZE_2MB, false);
+#else
 	netcfg.rx_region.base =
 	    mem_map_shm_rdonly(INGRESS_MBUF_SHM_KEY, NULL, INGRESS_MBUF_SHM_SIZE,
 			PGSIZE_2MB);
+#endif
 	if (netcfg.rx_region.base == MAP_FAILED) {
 		log_err("control_setup: failed to map ingress region");
 		log_err("Please make sure IOKernel is running");

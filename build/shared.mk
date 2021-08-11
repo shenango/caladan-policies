@@ -41,6 +41,8 @@ else
 FLAGS += -mssse3
 endif
 endif
+
+# network options
 ifeq ($(CONFIG_MLX5),y)
 FLAGS += -DMLX5
 else
@@ -48,6 +50,10 @@ ifeq ($(CONFIG_MLX4),y)
 FLAGS += -DMLX4
 endif
 endif
+ifeq ($(CONFIG_ICE),y)
+FLAGS += -DICE
+endif
+
 ifeq ($(CONFIG_SPDK),y)
 FLAGS += -DDIRECT_STORAGE
 RUNTIME_LIBS += -L$(ROOT_PATH)/spdk/build/lib -L$(ROOT_PATH)/spdk/dpdk/build/lib
@@ -56,8 +62,10 @@ RUNTIME_LIBS += -lspdk_nvme -lspdk_util -lspdk_env_dpdk -lspdk_log -lspdk_sock \
 INC += -I$(ROOT_PATH)/spdk/include
 endif
 ifeq ($(CONFIG_DIRECTPATH),y)
+ifneq (,$(filter y, $(CONFIG_MLX4) $(CONFIG_MLX5)))
 RUNTIME_LIBS += $(MLX5_LIBS)
 INC += $(MLX5_INC)
+endif
 FLAGS += -DDIRECTPATH
 endif
 

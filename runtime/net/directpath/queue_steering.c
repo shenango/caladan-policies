@@ -71,6 +71,20 @@ int qs_have_work(struct hardware_q *rxq)
 	return false;
 }
 
+int qs_have_work_no_parity(struct hardware_q *rxq)
+{
+	struct hardware_q *mrxq;
+	struct rcu_hlist_node *node;
+
+	rcu_hlist_for_each(&rxq->head, node, !preempt_enabled()) {
+		mrxq = rcu_hlist_entry(node, struct hardware_q, link);
+		if (hardware_q_pending_no_parity(mrxq))
+			return true;
+	}
+
+	return false;
+}
+
 int qs_gather_rx(struct hardware_q *rxq, struct mbuf **ms, unsigned int budget)
 {
 	struct hardware_q *hq;
@@ -91,6 +105,25 @@ int qs_gather_rx(struct hardware_q *rxq, struct mbuf **ms, unsigned int budget)
 	return pulled;
 }
 
+int qs_gather_rx_no_parity(struct hardware_q *rxq, struct mbuf **ms, unsigned int budget)
+{
+	struct hardware_q *hq;
+	struct rcu_hlist_node *node;
+
+	unsigned int pulled = 0;
+
+	rcu_hlist_for_each(&rxq->head, node, !preempt_enabled()) {
+		hq = rcu_hlist_entry(node, struct hardware_q, link);
+
+		if (hardware_q_pending_no_parity(hq) && spin_try_lock(&hq->lock)) {
+			pulled += rxfn(hq, ms + pulled, budget - pulled);
+			spin_unlock(&hq->lock);
+			if (pulled == budget)
+				break;
+		}
+	}
+	return pulled;
+}
 
 #endif
 

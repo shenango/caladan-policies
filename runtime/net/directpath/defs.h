@@ -46,7 +46,11 @@ extern int mlx5_init_flow_steering(struct hardware_q **rxq_out,struct direct_txq
 	             unsigned int nr_rxq, unsigned int nr_txq);
 
 extern int mlx4_init(struct hardware_q **rxq_out, struct direct_txq **txq_out,
-	             unsigned int nrrxq, unsigned int nr_txq);
+	             unsigned int nr_rxq, unsigned int nr_txq);
+
+extern int ice_init(struct hardware_q **rxq_out, struct direct_txq **txq_out,
+		unsigned int nr_rxq, unsigned int nr_txq, void *rx_buf,
+		size_t rx_len);
 
 extern int verbs_rss_init(struct ibv_context *context, struct ibv_pd *pd,
 	struct ibv_wq **ind_tbl, unsigned int sz);
@@ -54,10 +58,12 @@ extern uint32_t verbs_rss_flow_affinity(uint8_t ipproto, uint16_t local_port, st
 
 extern int init_qs(struct hardware_q **rxqs, unsigned int nr_rxq, rx_fn fn);
 extern int qs_have_work(struct hardware_q *rxq);
+extern int qs_have_work_no_parity(struct hardware_q *rxq);
 extern int qs_steer(unsigned int *new_fg_assignment);
 extern int qs_register_flow(unsigned int affininty, struct trans_entry *e, void **handle_out);
 extern int qs_deregister_flow(struct trans_entry *e, void *handle);
 extern int qs_gather_rx(struct hardware_q *rxq, struct mbuf **ms, unsigned int budget);
+extern int qs_gather_rx_no_parity(struct hardware_q *rxq, struct mbuf **ms, unsigned int budget);
 
 struct ibv_device;
 extern int ibv_device_to_pci_addr(const struct ibv_device *device, struct pci_addr *pci_addr);
