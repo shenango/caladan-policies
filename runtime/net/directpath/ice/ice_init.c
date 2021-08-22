@@ -30,7 +30,7 @@ struct page_paddrs *tx_addrs;
 static int ice_create_rxq(struct ice_rxq *rxq, int index)
 {
 	/* TEMP RX queue state set up by DPDK */
-	struct ice_rx_queue *dpdk_rxq = dpdk_data->rx_queues[index];
+	struct ice_rx_queue *dpdk_rxq = dpdk_data->rx_queues[index + first_queue];
 
 	// init consumer_idx from DPDK queue
 	rxq->consumer_idx = dpdk_rxq->rx_tail;
@@ -50,7 +50,7 @@ static int ice_create_rxq(struct ice_rxq *rxq, int index)
 
 static int ice_create_txq(struct ice_txq *txq, int index)
 {
-	txq->dpdk_txq = dpdk_data->tx_queues[index];
+	txq->dpdk_txq = dpdk_data->tx_queues[index + first_queue];
 
 	return 0;
 }

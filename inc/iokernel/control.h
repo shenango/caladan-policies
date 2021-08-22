@@ -102,6 +102,7 @@ struct control_hdr {
 	unsigned int		version_no;
 	unsigned int		magic;
 	unsigned int		thread_count;
+	unsigned int	        first_queue;
 	unsigned long		egress_buf_count;
 	shmptr_t		congestion_info;
 	struct eth_addr		mac;

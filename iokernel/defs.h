@@ -354,6 +354,8 @@ extern int tx_init(void);
 extern int dp_clients_init(void);
 extern int dpdk_late_init(void);
 extern int hw_timestamp_init(void);
+extern int dpdk_setup_flow(struct proc *p, unsigned int first_queue,
+			   unsigned int n_queues);
 
 extern char *nic_pci_addr_str;
 extern struct pci_addr nic_pci_addr;

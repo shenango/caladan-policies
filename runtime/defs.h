@@ -503,6 +503,7 @@ BUILD_ASSERT(sizeof(struct cpu_record) == CACHE_LINE_SIZE);
 
 extern struct cpu_record cpu_map[NCPU];
 extern int preferred_socket;
+extern int first_queue;
 
 /**
  * STAT - gets a stat counter

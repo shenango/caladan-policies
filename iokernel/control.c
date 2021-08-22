@@ -225,6 +225,17 @@ static struct proc *control_create_proc(mem_key_t key, size_t len,
 
 	nr_guaranteed += hdr.sched_cfg.guaranteed_cores;
 
+#if (defined(DIRECTPATH) && defined(ICE))
+	/* steer flows in NIC */
+	if (threads[0].direct_rxq.hwq_type == HWQ_MLX5_QSTEERING) {
+		if (dpdk_setup_flow(p, hdr.first_queue, hdr.thread_count)) {
+			log_err("failed to set up flow with first queue %d, %d total queues",
+				hdr.first_queue, hdr.thread_count);
+			goto fail;
+		}
+	}
+#endif
+
 	/* free temporary allocations */
 	free(threads);
 

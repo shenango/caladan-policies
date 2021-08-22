@@ -255,6 +255,7 @@ int ioqueues_register_iokernel(void)
 	/* TODO: overestimating is okay, but fix this later */
 	hdr->egress_buf_count = div_up(iok.tx_len, net_get_mtu() + MBUF_HEAD_LEN);
 	hdr->thread_count = maxks;
+	hdr->first_queue = first_queue;
 	hdr->mac = netcfg.mac;
 
 	hdr->sched_cfg.priority = cfg_prio_is_lc ?

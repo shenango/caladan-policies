@@ -75,6 +75,80 @@ static const struct rte_eth_conf port_conf_default = {
 	},
 };
 
+int dpdk_setup_flow(struct proc *p, unsigned int first_queue, unsigned int n_queues)
+{
+	struct rte_flow_attr attr;
+	struct rte_flow_item pattern[3];
+	struct rte_flow_item_eth eth_spec;
+	struct rte_flow_item_eth eth_mask;
+	struct rte_flow_action action[2];
+	uint8_t rss_key[52];
+	struct rte_eth_rss_conf rss_conf;
+	uint16_t queues[RTE_MAX_QUEUES_PER_PORT];
+	struct rte_flow_action_rss action_rss;
+	int ret, i;
+	struct rte_flow *flow = NULL;
+	struct rte_flow_error error;
+
+	/* only check ingress packets */
+	memset(&attr, 0, sizeof(struct rte_flow_attr));
+	attr.ingress = 1;
+
+	/* setup match pattern */
+	memset(pattern, 0, sizeof(pattern));
+
+	/* match only our ethernet address */
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+	memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+	memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+	memcpy(&eth_spec.dst.addr_bytes[0], &p->mac.addr[0], RTE_ETHER_ADDR_LEN);
+	for (i = 0; i < RTE_ETHER_ADDR_LEN; i++)
+	  eth_mask.dst.addr_bytes[i] = 0xFF;
+	pattern[0].spec = &eth_spec;
+	pattern[0].mask = &eth_mask;
+
+	/* must always include end */
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+
+	/* setup action */
+	memset(action, 0, sizeof(action));
+	action[0].type = RTE_FLOW_ACTION_TYPE_RSS;
+	action[0].conf = &action_rss;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	rss_conf = (struct rte_eth_rss_conf) {
+		.rss_key = rss_key,
+		.rss_key_len = 52,
+	};
+	ret = rte_eth_dev_rss_hash_conf_get(dp.port, &rss_conf);
+	if (ret)
+	  return ret;
+
+	for (i = 0; i < n_queues; i++)
+		queues[i] = first_queue + i;
+	action_rss = (struct rte_flow_action_rss) {
+		.types = rss_conf.rss_hf,
+		.key_len = rss_conf.rss_key_len,
+		.queue_num = n_queues,
+		.key = rss_key,
+		.queue = queues,
+	};
+
+	ret = rte_flow_validate(dp.port, &attr, pattern, action, &error);
+	if (ret)
+	  return ret;
+
+	flow = rte_flow_create(dp.port, &attr, pattern, action, &error);
+	if (!flow) {
+	  log_err("Flow can't be created %d message: %s\n",
+		 error.type,
+		 error.message ? error.message : "(no stated reason)");
+	  return -1;
+	}
+	log_err("setup flow with first queue %d, num queues %d", first_queue, n_queues);
+	return 0;
+}
+
 /*
  * Initializes a given port using global settings and with the RX buffers
  * coming from the mbuf_pool passed as a parameter.

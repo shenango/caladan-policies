@@ -17,6 +17,7 @@
 int arp_static_count = 0;
 struct cfg_arp_static_entry static_entries[MAX_ARP_STATIC_ENTRIES];
 int preferred_socket = 0;
+int first_queue = 0;
 
 /*
  * Configuration Options
@@ -298,6 +299,25 @@ static int parse_preferred_socket(const char *name, const char *val)
 	return 0;
 }
 
+static int parse_first_queue(const char *name, const char *val)
+{
+	long tmp;
+	int ret;
+
+	ret = str_to_long(val, &tmp);
+	if (ret)
+		return ret;
+
+	if (tmp < 0 || tmp > NCPU) {
+		log_err("invalid first queue requested, '%ld'", tmp);
+		log_err("must be >=0 and < %d", NCPU);
+		return -EINVAL;
+	}
+
+	first_queue = tmp;
+	return 0;
+}
+
 static int parse_enable_storage(const char *name, const char *val)
 {
 #ifdef DIRECT_STORAGE
@@ -367,6 +387,7 @@ static const struct cfg_handler cfg_handlers[] = {
 	{ "log_level", parse_log_level, false },
 	{ "disable_watchdog", parse_watchdog_flag, false },
 	{ "preferred_socket", parse_preferred_socket, false },
+	{ "first_queue", parse_first_queue, false },
 	{ "enable_storage", parse_enable_storage, false },
 	{ "enable_directpath", parse_enable_directpath, false },
 	{ "enable_gc", parse_enable_gc, false },
