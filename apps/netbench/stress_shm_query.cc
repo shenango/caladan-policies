@@ -100,6 +100,9 @@ int main(int argc, char *argv[]) {
   ret = base_init_thread();
   if (ret) return ret;
 
+  printf("start time: %lu\n", time(NULL));
+  printf("start rdtsc: %lu\n", rdtsc());
+
   std::vector<ShmMonitor> shms;
   MemBwMonitor mem;
   for (int i = 1; i < argc; i++) {
