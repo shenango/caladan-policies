@@ -301,8 +301,8 @@ sched_measure_hardware_delay(struct thread *th, struct hwq *h,
 	if (cur_tail != last_tail || h->busy_since == UINT64_MAX)
 		h->busy_since = cur_tsc;
 
-	return th->active ? wraps_lt(cur_tail, last_head) :
-				 cur_head != cur_tail;
+	return (th->active || h->hwq_type == HWQ_MLX5_QSTEERING) ? wraps_lt(cur_tail, last_head) :
+		cur_head != cur_tail;
 }
 
 static uint64_t calc_delay_tsc(uint64_t tsc)
