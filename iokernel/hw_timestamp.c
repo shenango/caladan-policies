@@ -16,8 +16,10 @@
 #include "defs.h"
 #include "hw_timestamp.h"
 
-/* microeconds per hw tick */
+/* microseconds per hw tick */
 double device_us_per_cycle;
+/* conversion factor from hw cycles to cpu cycles */
+double cpu_cycles_per_device_cycle;
 /* current hardware clock time */
 uint32_t curr_hw_time;
 /* address of hardware clock MMIO registers */
@@ -126,7 +128,9 @@ int hw_timestamp_init(void)
 
 	/* hca_core_clock is device tick rate in KHz */
 	device_us_per_cycle = 1000.0 / (double)ib_dev_attr.hca_core_clock;
+	cpu_cycles_per_device_cycle = cycles_per_us * device_us_per_cycle;
 	log_info("mlx5: device cycles / us: %.4f", 1.0 / device_us_per_cycle);
+	log_info("mlx5: cpu cycles per device cycle: %.4f", cpu_cycles_per_device_cycle);
 
 	/* get address of MMIO clock page */
 	mlx5_ctx.comp_mask = MLX5DV_CONTEXT_MASK_HCA_CORE_CLOCK;

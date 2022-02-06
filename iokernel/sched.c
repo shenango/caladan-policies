@@ -267,7 +267,8 @@ static uint64_t sched_measure_mlx5_delay(struct hwq *h)
 
 	cur_tail &= h->nr_descriptors - 1;
 	cqe = h->descriptor_table + (cur_tail << h->descriptor_log_size);
-	return hw_timestamp_delay_us(cqe) * cycles_per_us;
+
+	return hw_timestamp_delay_cpu_cycles(cqe);
 }
 
 static bool
