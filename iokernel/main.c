@@ -165,6 +165,7 @@ int main(int argc, char *argv[])
 		sched_ops = &ias_ops;
 	}
 
+	cfg.poll_interval = IOKERNEL_DEFAULT_POLL_INTERVAL;
 	for (i = 2; i < argc; i++) {
 		if (!strcmp(argv[i], "noht")) {
 			cfg.noht = true;
@@ -194,6 +195,15 @@ int main(int argc, char *argv[])
 			}
 		} else if (!strcmp(argv[i], "noidlefastwake")) {
 			cfg.noidlefastwake = true;
+		} else if (!strcmp(argv[i], "range_policy")) {
+			cfg.range_policy = true;
+		} else if (!strcmp(argv[i], "interval")) {
+			if (i == argc - 1) {
+				fprintf(stderr, "missing interval argument\n");
+				return -EINVAL;
+			}
+			cfg.poll_interval = atoi(argv[++i]);
+			log_info("setting poll interval to %d", cfg.poll_interval);
 		} else if (string_to_bitmap(argv[i], input_allowed_cores, NCPU)) {
 			fprintf(stderr, "invalid cpu list: %s\n", argv[i]);
 			fprintf(stderr, "example list: 0-24,26-48:2,49-255\n");
@@ -202,6 +212,9 @@ int main(int argc, char *argv[])
 			allowed_cores_supplied = true;
 		}
 	}
+
+	if (cfg.range_policy && cfg.poll_interval != 5)
+		log_warn("warning: recommended interval for range policies is 5us");
 
 	ret = run_init_handlers("iokernel", iok_init_handlers,
 			ARRAY_SIZE(iok_init_handlers));

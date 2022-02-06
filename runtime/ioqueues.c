@@ -41,7 +41,13 @@ static size_t calculate_egress_pool_size(void)
 struct iokernel_control iok;
 bool cfg_prio_is_lc;
 uint64_t cfg_ht_punish_us;
+
+/* use policy with max queuing delay of 10 us by default */
 uint64_t cfg_qdelay_us = 10;
+uint64_t cfg_qdelay_upper_thresh_ns = 0;
+uint64_t cfg_qdelay_lower_thresh_ns = 0;
+float cfg_util_upper_thresh = 0;
+float cfg_util_lower_thresh = 0;
 
 static int generate_random_mac(struct eth_addr *mac)
 {
@@ -262,6 +268,10 @@ int ioqueues_register_iokernel(void)
 				  SCHED_PRIO_LC : SCHED_PRIO_BE;
 	hdr->sched_cfg.ht_punish_us = cfg_ht_punish_us;
 	hdr->sched_cfg.qdelay_us = cfg_qdelay_us;
+	hdr->sched_cfg.qdelay_upper_thresh_ns = cfg_qdelay_upper_thresh_ns;
+	hdr->sched_cfg.qdelay_lower_thresh_ns = cfg_qdelay_lower_thresh_ns;
+	hdr->sched_cfg.util_upper_thresh = cfg_util_upper_thresh;
+	hdr->sched_cfg.util_lower_thresh = cfg_util_lower_thresh;
 	hdr->sched_cfg.max_cores = maxks;
 	hdr->sched_cfg.guaranteed_cores = guaranteedks;
 	hdr->sched_cfg.preferred_socket = preferred_socket;

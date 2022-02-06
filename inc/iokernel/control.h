@@ -16,7 +16,7 @@
  * struct control_hdr, please increment the version number!
  */
 
-#define CONTROL_HDR_VERSION 5
+#define CONTROL_HDR_VERSION 6
 
 /* The abstract namespace path for the control socket. */
 #define CONTROL_SOCK_PATH	"\0/control/iokernel.sock"
@@ -28,9 +28,13 @@ struct q_ptrs {
 	uint32_t		rq_tail;
 	uint32_t		directpath_rx_tail;
 	uint64_t		next_timer_tsc;
+#ifdef DIRECT_STORAGE
 	uint32_t		storage_tail;
 	uint32_t		pad;
+#endif
 	uint64_t		oldest_tsc;
+	uint64_t		program_cycles;
+	uint64_t		sched_cycles;
 	uint64_t		rcu_gen;
 	uint64_t		run_start_tsc;
 };
@@ -40,6 +44,7 @@ BUILD_ASSERT(sizeof(struct q_ptrs) <= CACHE_LINE_SIZE);
 struct congestion_info {
 	float			load;
 	uint64_t		delay_us;
+	uint32_t		kthread_yield_requested;
 };
 
 enum {
@@ -92,6 +97,10 @@ struct sched_spec {
 	unsigned int		guaranteed_cores;
 	unsigned int		preferred_socket;
 	uint64_t		qdelay_us;
+	uint64_t		qdelay_upper_thresh_ns;
+	uint64_t		qdelay_lower_thresh_ns;
+	float			util_upper_thresh;
+	float			util_lower_thresh;
 	uint64_t		ht_punish_us;
 };
 

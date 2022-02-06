@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include <base/stddef.h>
-
+#include <base/log.h>
 #include "defs.h"
 #include "sched.h"
 
@@ -15,11 +15,26 @@ static LIST_HEAD(congested_procs);
 /* a bitmap of all available cores that are currently idle */
 static DEFINE_BITMAP(simple_idle_cores, NCPU);
 
+/* core-allocation policy options within simple and what signals they use to
+   decide when to add and yield/revoke cores */
+enum {
+	POLICY_MAX_QDELAY = 0,	/* add: max queueing delay, yield: can't work steal */
+	POLICY_DELAY_RANGE,	/* add/revoke: average queueing delay */
+	POLICY_UTIL_RANGE,	/* add/revoke: average cpu utilization */
+};
+
 struct simple_data {
 	struct proc		*p;
 	unsigned int		is_congested:1;
 	struct list_node	congested_link;
+
+	/* core-allocation policy info */
+	unsigned int		policy;
 	uint64_t		qdelay_us;
+	uint64_t		qdelay_upper_thresh_ns;
+	uint64_t		qdelay_lower_thresh_ns;
+	float			util_upper_thresh;
+	float			util_lower_thresh;
 
 	/* thread usage limits */
 	int			threads_guaranteed;
@@ -28,6 +43,7 @@ struct simple_data {
 
 	/* congestion info */
 	bool			waking;
+	bool			yielding;
 };
 
 static bool simple_proc_is_preemptible(struct simple_data *cursd,
@@ -76,11 +92,11 @@ static void simple_unmark_congested(struct simple_data *sd)
 	list_del_from(&congested_procs, &sd->congested_link);
 }
 
-static int simple_attach(struct proc *p, struct sched_spec *cfg)
+static int simple_attach(struct proc *p, struct sched_spec *sched_cfg)
 {
 	struct simple_data *sd;
 
-	/* TODO: validate if there are enough cores available for @cfg */
+	/* TODO: validate if there are enough cores available for @sched_cfg */
 
 	sd = malloc(sizeof(*sd));
 	if (!sd)
@@ -88,11 +104,50 @@ static int simple_attach(struct proc *p, struct sched_spec *cfg)
 
 	memset(sd, 0, sizeof(*sd));
 	sd->p = p;
-	sd->threads_guaranteed = cfg->guaranteed_cores;
-	sd->threads_max = cfg->max_cores;
+	sd->threads_guaranteed = sched_cfg->guaranteed_cores;
+	sd->threads_max = sched_cfg->max_cores;
 	sd->threads_active = 0;
 	sd->waking = false;
-	sd->qdelay_us = cfg->qdelay_us;
+
+	if (sched_cfg->qdelay_upper_thresh_ns != 0) {
+		/* delay range policy */
+		if (!cfg.range_policy) {
+			log_err("simple: must run the iokernel with range_policy to use range-based policies");
+			return -EINVAL;
+		}
+
+		sd->policy = POLICY_DELAY_RANGE;
+		sd->qdelay_upper_thresh_ns = sched_cfg->qdelay_upper_thresh_ns;
+		sd->qdelay_lower_thresh_ns = sched_cfg->qdelay_lower_thresh_ns;
+		log_info("attaching proc with delay range policy (%ld to %ld ns)",
+			sd->qdelay_lower_thresh_ns, sd->qdelay_upper_thresh_ns);
+	} else if (sched_cfg->util_upper_thresh != 0) {
+		/* utilization range policy */
+		if (!cfg.range_policy) {
+			log_err("simple: must run the iokernel with range_policy to use range-based policies");
+			return -EINVAL;
+		}
+
+		sd->policy = POLICY_UTIL_RANGE;
+		sd->util_upper_thresh = sched_cfg->util_upper_thresh;
+		sd->util_lower_thresh = sched_cfg->util_lower_thresh;
+		log_info("attaching proc with utilization range policy (%f to %f)",
+			sd->util_lower_thresh, sd->util_upper_thresh);
+	} else {
+		/* default policy */
+		if (cfg.range_policy) {
+			log_err("simple: run the iokernel without range_policy for max queueing delay policy");
+			return -EINVAL;
+		}
+
+		sd->policy = POLICY_MAX_QDELAY;
+		sd->qdelay_us = sched_cfg->qdelay_us;
+		log_info("attaching proc with default policy (%ld)", sd->qdelay_us);
+	}
+
+	/* start with no yields requested */
+	ACCESS_ONCE(p->congestion_info->kthread_yield_requested) = UINT32_MAX;
+
 	p->policy_data = (unsigned long)sd;
 	return 0;
 }
@@ -218,18 +273,67 @@ static int simple_notify_core_needed(struct proc *p)
 	return simple_add_kthread(p);
 }
 
-static void simple_notify_congested(struct proc *p, bool busy, uint64_t delay, bool parked_thread_delay)
+static void simple_notify_congested(struct proc *p, bool busy,
+				uint64_t max_delay_us, uint64_t avg_delay_ns,
+				bool parked_thread_delay,
+				uint32_t min_delay_thread, float utilization)
 {
 	struct simple_data *sd = (struct simple_data *)p->policy_data;
+	struct congestion_info *info = p->congestion_info;
 	int ret;
 	bool congested;
 
-	/* detect congestion */
-	congested = sd->qdelay_us == 0 ? busy : delay >= sd->qdelay_us;
-	congested |= parked_thread_delay;
+	if (sd->policy == POLICY_DELAY_RANGE) {
+		/* detect congestion */
+		congested = (avg_delay_ns >= sd->qdelay_upper_thresh_ns) ||
+			parked_thread_delay;
 
-	/* do nothing if we woke up a core during the last interval */
-	if (sd->waking) {
+		/* check if we should revoke a core */
+		if (sd->yielding) {
+			/* don't yield again if we just yielded */
+			sd->yielding = false;
+			ACCESS_ONCE(info->kthread_yield_requested) = UINT32_MAX;
+		} else if (sd->threads_active > 1 && avg_delay_ns <= sd->qdelay_lower_thresh_ns) {
+			/* request that the thread with the least delay yields */
+			assert(min_delay_thread <= sd->threads_max);
+
+			ACCESS_ONCE(info->kthread_yield_requested) = min_delay_thread;
+			sd->yielding = true;
+		} else if (sd->threads_active == 1 && avg_delay_ns == 0 && !parked_thread_delay) {
+			/* ask our last active thread to yield */
+			assert(min_delay_thread <= sd->threads_max);
+			ACCESS_ONCE(info->kthread_yield_requested) = min_delay_thread;
+			sd->yielding = true;
+		}
+	} else if (sd->policy == POLICY_UTIL_RANGE) {
+		/* detect congestion */
+		congested = (utilization > sd->util_upper_thresh) || parked_thread_delay;
+
+		/* check if we should revoke a core */
+		if (sd->yielding) {
+			/* don't yield again if we just yielded */
+			sd->yielding = false;
+			ACCESS_ONCE(info->kthread_yield_requested) = UINT32_MAX;
+		} else if (sd->threads_active > 1 && utilization <= sd->util_lower_thresh) {
+			/* request that the thread with the least delay yields */
+			assert(min_delay_thread <= sd->threads_max);
+
+			ACCESS_ONCE(info->kthread_yield_requested) = min_delay_thread;
+			sd->yielding = true;
+		} else if (sd->threads_active == 1 && utilization == 0 && !parked_thread_delay) {
+			/* ask our last active thread to yield */
+			assert(min_delay_thread <= sd->threads_max);
+			ACCESS_ONCE(info->kthread_yield_requested) = min_delay_thread;
+			sd->yielding = true;
+		}
+	} else {
+		/* detect congestion */
+		congested = sd->qdelay_us == 0 ? busy : max_delay_us >= sd->qdelay_us;
+		congested |= parked_thread_delay;
+	}
+
+	/* do nothing if we woke up a core during the last interval and we're running with a short interval */
+	if (cfg.poll_interval < 10 && sd->waking) {
 		sd->waking = false;
 		return;
 	}

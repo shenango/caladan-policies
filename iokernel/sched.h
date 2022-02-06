@@ -35,13 +35,17 @@ struct sched_ops {
 	 * notify_congested - notifies the scheduler of process congestion
 	 * @p: the process for which congestion has changed
 	 * @congested: did the old shenango congestion signal trigger
-	 * @delay: the new queueing delay signal in microseconds
+	 * @max_delay_us: the max queueing delay in microseconds
+	 * @avg_delay_ns: the average queueing delay in nanoseconds
 	 * @parked_thread_congested: queueing delay is non-zero for a parked thread
+	 * @min_delay_thread: active thread with minimum delay
 	 *
 	 * This notifier informs the scheduler of when processes become
 	 * congested or uncongested, driving core allocation decisions.
 	 */
-	void (*notify_congested)(struct proc *p, bool congested, uint64_t delay, bool parked_thread_delay);
+	void (*notify_congested)(struct proc *p, bool congested, uint64_t max_delay_us,
+				uint64_t avg_delay_ns, bool parked_thread_delay,
+				uint32_t min_delay_thread, float utilization);
 
 	/**
 	 * notify_core_needed - notifies the scheduler that a core is needed

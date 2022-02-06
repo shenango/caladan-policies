@@ -332,6 +332,8 @@ static inline bool storage_pending_completions(struct storage_q *q)
 extern bool cfg_gc_enabled;
 #endif
 
+extern bool cfg_yield_requests_enabled;
+
 /*
  * Per-kernel-thread State
  */
@@ -489,6 +491,10 @@ extern struct kthread *ks[NCPU];
 extern bool cfg_prio_is_lc;
 extern uint64_t cfg_ht_punish_us;
 extern uint64_t cfg_qdelay_us;
+extern uint64_t cfg_qdelay_upper_thresh_ns;
+extern uint64_t cfg_qdelay_lower_thresh_ns;
+extern float cfg_util_upper_thresh;
+extern float cfg_util_lower_thresh;
 
 extern void kthread_park(bool voluntary);
 extern void kthread_wait_to_attach(void);

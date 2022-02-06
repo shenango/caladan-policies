@@ -264,14 +264,16 @@ static int numa_notify_core_needed(struct proc *p)
 	return numa_add_kthread(p);
 }
 
-static void numa_notify_congested(struct proc *p,  bool busy, uint64_t delay, bool parked_thread_delay)
+static void numa_notify_congested(struct proc *p,  bool busy, uint64_t max_delay_us,
+				uint64_t avg_delay_ns, bool parked_thread_delay,
+				uint32_t min_delay_thread, float utilization)
 {
 	struct numa_data *sd = (struct numa_data *)p->policy_data;
 	int ret;
 	bool congested;
 
 	/* detect congestion */
-	congested = sd->qdelay_us == 0 ? busy : delay >= sd->qdelay_us;
+	congested = sd->qdelay_us == 0 ? busy : max_delay_us >= sd->qdelay_us;
 	congested |= parked_thread_delay;
 
 	/* do nothing if we woke up a core during the last interval */

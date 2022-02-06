@@ -369,14 +369,16 @@ static int ias_notify_core_needed(struct proc *p)
 	return ias_add_kthread(sd);
 }
 
-static void ias_notify_congested(struct proc *p, bool busy, uint64_t delay, bool parked_thread_delay)
+static void ias_notify_congested(struct proc *p, bool busy, uint64_t max_delay_us,
+				uint64_t avg_delay_ns, bool parked_thread_delay,
+				uint32_t min_delay_thread, float utilization)
 {
 	struct ias_data *sd = (struct ias_data *)p->policy_data;
 	int ret;
 	bool congested;
 
 	/* detect congestion */
-	congested = sd->qdelay_us == 0 ? busy : delay >= sd->qdelay_us;
+	congested = sd->qdelay_us == 0 ? busy : max_delay_us >= sd->qdelay_us;
 	congested |= parked_thread_delay;
 
 	/* stop if there is no congestion */

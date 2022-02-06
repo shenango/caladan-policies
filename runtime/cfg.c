@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <float.h>
 
 #include <base/stddef.h>
 #include <base/bitmap.h>
@@ -60,6 +61,17 @@ static int str_to_long(const char *str, long *val)
 	*val = strtol(str, &endptr, 10);
 	if (endptr == str || (*endptr != '\0' && *endptr != '\n') ||
 	    ((*val == LONG_MIN || *val == LONG_MAX) && errno == ERANGE))
+		return -EINVAL;
+	return 0;
+}
+
+static int str_to_float(const char *str, float *val)
+{
+	char *endptr;
+
+	*val = strtof(str, &endptr);
+	if (endptr == str || (*endptr != '\0' && *endptr != '\n') ||
+	    ((*val == FLT_MIN || *val == FLT_MAX) && errno == ERANGE))
 		return -EINVAL;
 	return 0;
 }
@@ -203,6 +215,94 @@ static int parse_runtime_qdelay_us(const char *name, const char *val)
 	}
 
 	cfg_qdelay_us = tmp;
+	return 0;
+}
+
+static int parse_runtime_qdelay_upper_thresh_ns(const char *name, const char *val)
+{
+	long tmp;
+	int ret;
+
+	ret = str_to_long(val, &tmp);
+	if (ret)
+		return ret;
+
+	if (tmp < 0) {
+		log_err("runtime_qdelay_upper_thresh_ns must be positive");
+		return -EINVAL;
+	}
+
+	cfg_qdelay_upper_thresh_ns = tmp;
+
+	/* delay range requires yield requests */
+	cfg_yield_requests_enabled = true;
+
+	return 0;
+}
+
+static int parse_runtime_qdelay_lower_thresh_ns(const char *name, const char *val)
+{
+	long tmp;
+	int ret;
+
+	ret = str_to_long(val, &tmp);
+	if (ret)
+		return ret;
+
+	if (tmp < 0) {
+		log_err("runtime_qdelay_lower_thresh_ns must be positive");
+		return -EINVAL;
+	}
+
+	cfg_qdelay_lower_thresh_ns = tmp;
+
+	/* delay range requires yield requests */
+	cfg_yield_requests_enabled = true;
+
+	return 0;
+}
+
+static int parse_runtime_util_upper_thresh(const char *name, const char *val)
+{
+	float tmp;
+	int ret;
+
+	ret = str_to_float(val, &tmp);
+	if (ret)
+		return ret;
+
+	if (tmp < 0 || tmp > 1.0) {
+		log_err("runtime_util_upper_thresh must be between 0 and 1.0");
+		return -EINVAL;
+	}
+
+	cfg_util_upper_thresh = tmp;
+
+	/* utilization range requires yield requests */
+	cfg_yield_requests_enabled = true;
+
+	return 0;
+}
+
+static int parse_runtime_util_lower_thresh(const char *name, const char *val)
+{
+	float tmp;
+	int ret;
+
+	ret = str_to_float(val, &tmp);
+	if (ret)
+		return ret;
+
+	if (tmp < 0 || tmp > 1.0) {
+		log_err("runtime_util_upper_thresh must be between 0 and 1.0");
+		return -EINVAL;
+	}
+
+	cfg_util_lower_thresh = tmp;
+
+	/* utilization range requires yield requests */
+	cfg_yield_requests_enabled = true;
+
 	return 0;
 }
 
@@ -383,6 +483,10 @@ static const struct cfg_handler cfg_handlers[] = {
 	{ "runtime_priority", parse_runtime_priority, false },
 	{ "runtime_ht_punish_us", parse_runtime_ht_punish_us, false },
 	{ "runtime_qdelay_us", parse_runtime_qdelay_us, false },
+	{ "runtime_qdelay_upper_thresh_ns", parse_runtime_qdelay_upper_thresh_ns, false },
+	{ "runtime_qdelay_lower_thresh_ns", parse_runtime_qdelay_lower_thresh_ns, false },
+	{ "runtime_util_upper_thresh", parse_runtime_util_upper_thresh, false },
+	{ "runtime_util_lower_thresh", parse_runtime_util_lower_thresh, false },
 	{ "static_arp", parse_static_arp_entry, false },
 	{ "log_level", parse_log_level, false },
 	{ "disable_watchdog", parse_watchdog_flag, false },
@@ -489,6 +593,12 @@ int cfg_load(const char *path)
 		 cfg_prio_is_lc ? "latency critical (LC)" : "best effort (BE)");
 	log_info("cfg: THRESH_QD: %ld, THRESH_HT: %ld",
 		 cfg_qdelay_us, cfg_ht_punish_us);
+	if (cfg_qdelay_upper_thresh_ns != 0 || cfg_qdelay_lower_thresh_ns != 0)
+		log_info("cfg: UPPER_QD_THRESH_NS: %ld, LOWER_QD_THRESH_NS: %ld",
+			cfg_qdelay_upper_thresh_ns, cfg_qdelay_lower_thresh_ns);
+	if (cfg_util_upper_thresh != 0 || cfg_util_lower_thresh != 0)
+		log_info("cfg: UPPER_UTIL_THRESH: %f, LOWER_UTIL_THRESH: %f",
+			cfg_util_upper_thresh, cfg_util_lower_thresh);
 	log_info("cfg: storage %s, directpath %s",
 #ifdef DIRECT_STORAGE
 		 cfg_storage_enabled ? "enabled" : "disabled",

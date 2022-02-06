@@ -31,6 +31,8 @@ struct iokernel_cfg {
 	bool	ias_prefer_selfpair; /* prefer self-pairings */
 	float	ias_bw_limit; /* IAS bw limit, (MB/s) */
 	bool	no_hw_qdel; /* Disable use of hardware timestamps for qdelay */
+	bool	range_policy; /* Use a range-based policy (delay or util) */
+	int	poll_interval; /* Interval between checking for core reallocs */
 };
 
 extern struct iokernel_cfg cfg;
@@ -48,7 +50,10 @@ extern struct iokernel_cfg cfg;
 #define IOKERNEL_CMD_BURST_SIZE		64
 #define IOKERNEL_RX_BURST_SIZE		64
 #define IOKERNEL_CONTROL_BURST_SIZE	4
-#define IOKERNEL_POLL_INTERVAL		10
+
+/* recommend using an interval of 10 us for Caladan and 5 us for Shenango, delay
+   range, and utilization range */
+#define IOKERNEL_DEFAULT_POLL_INTERVAL	10
 
 /*
  * Process Support
@@ -90,6 +95,8 @@ struct thread {
 	uint32_t		last_rxq_head;
 	uint32_t		last_rxq_tail;
 	uint64_t		rxq_busy_since;
+	uint64_t		program_cycles;
+	uint64_t		sched_cycles;
 	unsigned int		core;
 	unsigned int		at_idx;
 	unsigned int		ts_idx;

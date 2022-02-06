@@ -40,6 +40,9 @@ static __thread uint64_t last_tsc;
 /* used to force timer and network processing after a timeout */
 static __thread uint64_t last_watchdog_tsc;
 
+/* whether yield requests are enabled or not */
+bool cfg_yield_requests_enabled;
+
 /**
  * In inc/runtime/thread.h, this function is declared inline (rather than static
  * inline) so that it is accessible to the Rust bindings. As a result, it must
@@ -68,6 +71,17 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
 {
 	return cpua == cpub ||
 	       cpu_map[cpua].sibling_core == cpub;
+}
+
+/**
+ * yield_requested - returns true if yield requests are enabled and the IOKernel
+ * requested that this kthread yield
+ * @k: the kthread
+ */
+static inline bool yield_requested(struct kthread *k) {
+	return cfg_yield_requests_enabled &&
+		(ACCESS_ONCE(runtime_congestion->kthread_yield_requested)
+			== k->kthread_idx);
 }
 
 /**
@@ -290,6 +304,7 @@ static __noreturn __noinline void schedule(void)
 	unsigned int start_idx;
 	unsigned int iters = 0;
 	int i, sibling;
+	bool return_to_after_yield = false;
 
 	assert_spin_lock_held(&l->lock);
 	assert(l->parked == false);
@@ -310,6 +325,7 @@ static __noreturn __noinline void schedule(void)
 	STAT(RESCHEDULES)++;
 	start_tsc = rdtsc();
 	STAT(PROGRAM_CYCLES) += start_tsc - last_tsc;
+	l->q_ptrs->program_cycles += start_tsc - last_tsc;
 
 	/* increment the RCU generation number (even is in scheduler) */
 	store_release(&l->rcu_gen, l->rcu_gen + 1);
@@ -329,6 +345,15 @@ static __noreturn __noinline void schedule(void)
 		if (do_watchdog(l))
 			goto done;
 	}
+
+	/* yield requested, park if this isn't the last kthread */
+	if (yield_requested(l) && atomic_read(&runningks) > 1) {
+		assert(!return_to_after_yield);
+		/* yield requested, park */
+		return_to_after_yield = true;
+		goto park;
+	}
+after_yield_requested:
 
 	/* move overflow tasks into the runqueue */
 	if (unlikely(!list_empty(&l->rq_overflow)))
@@ -360,6 +385,12 @@ again:
 		int idx = (start_idx + i) % nrks;
 		if (ks[idx] != l && steal_work(l, ks[idx]))
 			goto done;
+
+		if (yield_requested(l) && atomic_read(&runningks) > 1) {
+			/* yield requested, park if this isn't the last
+			   kthread */
+			goto park;
+		}
 	}
 
 	/* recheck for local softirqs one last time */
@@ -373,19 +404,30 @@ again:
 		gc_kthread_report(l);
 #endif
 
-	/* keep trying to find work until the polling timeout expires */
-	if (!preempt_cede_needed() &&
-	    (++iters < RUNTIME_SCHED_POLL_ITERS ||
-	     rdtsc() - start_tsc < cycles_per_us * RUNTIME_SCHED_MIN_POLL_US ||
-	     storage_pending_completions(&l->storage_q))) {
-		goto again;
+	if (cfg_yield_requests_enabled) {
+		/* don't yield voluntarily unless it's the last kthread */
+		if (!preempt_cede_needed() && atomic_read(&runningks) > 1) {
+			++iters;
+			goto again;
+		}
+	} else {
+		/* keep trying to find work until the polling timeout expires */
+		if (!preempt_cede_needed() &&
+			(++iters < RUNTIME_SCHED_POLL_ITERS ||
+				rdtsc() - start_tsc < cycles_per_us * RUNTIME_SCHED_MIN_POLL_US ||
+				storage_pending_completions(&l->storage_q))) {
+			goto again;
+		}
 	}
+park:
 
 	l->parked = true;
 	spin_unlock(&l->lock);
 
 	/* did not find anything to run, park this kthread */
-	STAT(SCHED_CYCLES) += rdtsc() - start_tsc;
+	uint64_t now = rdtsc();
+	STAT(SCHED_CYCLES) += now - start_tsc;
+	l->q_ptrs->sched_cycles += now - start_tsc;
 	/* we may have got a preempt signal before voluntarily yielding */
 	kthread_park(!preempt_cede_needed());
 	start_tsc = rdtsc();
@@ -393,6 +435,11 @@ again:
 
 	spin_lock(&l->lock);
 	l->parked = false;
+
+	if (cfg_yield_requests_enabled && return_to_after_yield) {
+		return_to_after_yield = false;
+		goto after_yield_requested;
+	}
 	goto again;
 
 done:
@@ -411,6 +458,7 @@ done:
 	/* update exit stat counters */
 	end_tsc = rdtsc();
 	STAT(SCHED_CYCLES) += end_tsc - start_tsc;
+	l->q_ptrs->sched_cycles += end_tsc - start_tsc;
 	last_tsc = end_tsc;
 	if (cores_have_affinity(th->last_cpu, l->curr_cpu))
 		STAT(LOCAL_RUNS)++;
@@ -452,13 +500,15 @@ static __always_inline void enter_schedule(thread_t *curth)
 #endif
 	    (!disable_watchdog &&
 	     unlikely(now - last_watchdog_tsc >
-		      cycles_per_us * RUNTIME_WATCHDOG_US))) {
+		     cycles_per_us * RUNTIME_WATCHDOG_US)) ||
+		yield_requested(k)) {
 		jmp_runtime(schedule);
 		return;
 	}
 
 	/* fast path: switch directly to the next uthread */
 	STAT(PROGRAM_CYCLES) += now - last_tsc;
+	k->q_ptrs->program_cycles += now - last_tsc;
 	last_tsc = now;
 
 	/* pop the next runnable thread from the queue */
@@ -686,6 +736,7 @@ static void thread_finish_cede(void)
 {
 	struct kthread *k = myk();
 	thread_t *th, *myth = thread_self();
+	uint64_t now;
 
 	myth->thread_running = false;
 	myth->thread_ready = true;
@@ -695,7 +746,9 @@ static void thread_finish_cede(void)
 	/* clear thread run start time */
 	ACCESS_ONCE(k->q_ptrs->run_start_tsc) = UINT64_MAX;
 
-	STAT(PROGRAM_CYCLES) += rdtsc() - last_tsc;
+	now = rdtsc();
+	STAT(PROGRAM_CYCLES) += now - last_tsc;
+	k->q_ptrs->program_cycles += now - last_tsc;
 
 	/* ensure preempted thread cuts the line,
 	 * possibly displacing the newest element in a full runqueue
@@ -945,7 +998,7 @@ int sched_init_thread(void)
 		return -ENOMEM;
 
 	runtime_stack_base = (void *)s;
-	runtime_stack = (void *)stack_init_to_rsp(s, runtime_top_of_stack); 
+	runtime_stack = (void *)stack_init_to_rsp(s, runtime_top_of_stack);
 
 	return 0;
 }

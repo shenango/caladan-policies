@@ -314,11 +314,13 @@ static uint64_t calc_delay_tsc(uint64_t tsc)
 static bool
 sched_measure_kthread_delay(struct thread *th,
 			    uint64_t *rxq_tsc, uint64_t *uthread_tsc,
-			    uint64_t *storage_tsc, uint64_t *timer_tsc)
+			uint64_t *storage_tsc, uint64_t *timer_tsc,
+			uint64_t *parked_delay, uint64_t *program_cycles, uint64_t *sched_cycles)
 {
 	uint32_t cur_tail, cur_head, last_head, last_tail;
 	uint64_t tmp;
 	bool busy = false;
+	uint64_t latest_program_cycles, latest_sched_cycles;
 
 	/* UTHREAD: measure delay */
 	last_tail = th->last_rq_tail;
@@ -341,6 +343,7 @@ sched_measure_kthread_delay(struct thread *th,
 	} else {
 		*uthread_tsc = 0;
 	}
+	*parked_delay = *uthread_tsc;
 
 	/* RXQ: measure delay */
 	last_tail = th->last_rxq_tail;
@@ -371,6 +374,7 @@ sched_measure_kthread_delay(struct thread *th,
 	if (tmp <= cur_tsc)
 		busy = true;
 	*timer_tsc = calc_delay_tsc(tmp);
+	*parked_delay += *timer_tsc;
 
 	/* DIRECTPATH: measure delay and update signals */
 	if (sched_measure_hardware_delay(th, &th->directpath_hwq, true))
@@ -378,16 +382,35 @@ sched_measure_kthread_delay(struct thread *th,
 
 	// TODO: use sched_measure_mlx5_delay() instead of scanning the descriptor
 	// ring for the producer index
+	uint64_t prev_rxq_tsc = *rxq_tsc;
 	if (is_hw_timestamp_enabled() && th->directpath_hwq.enabled &&
 	    th->directpath_hwq.hwq_type == HWQ_MLX5)
 		*rxq_tsc = MAX(*rxq_tsc, sched_measure_mlx5_delay(&th->directpath_hwq));
 	else
 		*rxq_tsc = MAX(*rxq_tsc, calc_delay_tsc(th->directpath_hwq.busy_since));
+	if (th->directpath_hwq.enabled && th->directpath_hwq.hwq_type == HWQ_MLX5)
+		*parked_delay += *rxq_tsc;
+	else {
+		// for queue steering, don't include hardware delay of RX queues
+		// because another core should handle this queue now
+		*parked_delay += prev_rxq_tsc;
+	}
 
 	/* STORAGE: measure delay and update signals */
 	if (sched_measure_hardware_delay(th, &th->storage_hwq, true))
 		busy = true;
 	*storage_tsc = calc_delay_tsc(th->storage_hwq.busy_since);
+	*parked_delay += *storage_tsc;
+
+	/* update cycles and calculate diffs since last interval */
+	if (cfg.range_policy) {
+		latest_program_cycles = ACCESS_ONCE(th->q_ptrs->program_cycles);
+		latest_sched_cycles = ACCESS_ONCE(th->q_ptrs->sched_cycles);
+		*program_cycles = latest_program_cycles - th->program_cycles;
+		*sched_cycles = latest_sched_cycles - th->sched_cycles;
+		th->program_cycles = latest_program_cycles;
+		th->sched_cycles = latest_sched_cycles;
+	}
 
 	return busy;
 }
@@ -407,34 +430,80 @@ static void sched_report_metrics(struct proc *p, uint64_t delay)
 
 static void sched_measure_delay(struct proc *p)
 {
-	uint64_t hdelay = 0;
+	uint64_t max_delay = 0;
+	uint64_t total_delay = 0;
+	uint64_t min_delay = UINT64_MAX;
+	int min_delay_thread = INT_MAX;
 	int i;
 	bool busy = false;
 	bool parked_thread_busy = false;
+	uint64_t avg_delay_ns = 0;
+
+	uint64_t total_program_cycles = 0;
+	uint64_t total_sched_cycles = 0;
+
+	/* default to 100% utilization if we have no utilization data from this
+	   interval */
+	float utilization = 1.0;
 
 	/* detect per-kthread delay */
 	for (i = 0; i < p->thread_count; i++) {
-		uint64_t delay, rxq_tsc, uthread_tsc, storage_tsc, timer_tsc;
+		uint64_t delay, rxq_tsc, uthread_tsc, storage_tsc, timer_tsc,
+			parked_delay, program_cycles, sched_cycles;
+		if (cfg.range_policy) {
+			/* need up-to-date tsc */
+			cur_tsc = rdtsc();
+		}
 
 		busy |= sched_measure_kthread_delay(&p->threads[i],
-			&rxq_tsc, &uthread_tsc, &storage_tsc, &timer_tsc);
+						&rxq_tsc, &uthread_tsc, &storage_tsc,
+						&timer_tsc, &parked_delay,
+						&program_cycles, &sched_cycles);
 		delay = rxq_tsc + uthread_tsc + storage_tsc + timer_tsc;
-		hdelay = MAX(delay, hdelay);
-		parked_thread_busy |= delay > 0 && !p->threads[i].active;
+
+		parked_thread_busy |= parked_delay > 0 && !p->threads[i].active;
+		max_delay = MAX(delay, max_delay);
+
+		if (cfg.range_policy) {
+			/* update total delay */
+			total_delay += delay;
+			if (p->threads[i].active && delay < min_delay) {
+				min_delay = delay;
+				min_delay_thread = i;
+			}
+
+			/* update cycle counts */
+			total_program_cycles += program_cycles;
+			total_sched_cycles += sched_cycles;
+		}
 	}
 
-	/* don't report parked busy if no threads are active */
-	if (sched_threads_active(p) == 0)
-		parked_thread_busy = false;
+	if (cfg.range_policy) {
+		/* compute average delay across cores in ns */
+		if (p->active_thread_count > 0) {
+			avg_delay_ns = total_delay * 1000 / p->active_thread_count;
+		} else {
+			/* no threads active, assign all delay to one */
+			avg_delay_ns = total_delay * 1000;
+		}
+		avg_delay_ns /= cycles_per_us;
+
+		/* compute cpu utilization */
+		if (total_program_cycles + total_sched_cycles > 0)
+			utilization = ((float) total_program_cycles) /
+				(total_program_cycles + total_sched_cycles);
+	}
 
 	/* convert the highest delay experienced by the runtime to us */
-	hdelay /= cycles_per_us;
+	max_delay /= cycles_per_us;
 
 	/* report delay back to runtime */
-	sched_report_metrics(p, hdelay);
+	sched_report_metrics(p, max_delay);
 
 	/* notify the scheduler policy of the current delay */
-	sched_ops->notify_congested(p, busy, hdelay, parked_thread_busy);
+	sched_ops->notify_congested(p, busy, max_delay, avg_delay_ns,
+				parked_thread_busy, min_delay_thread,
+				utilization);
 }
 
 /*
@@ -502,12 +571,12 @@ void sched_poll(void)
 	struct proc *p;
 
 	/*
-	 * slow pass --- runs every IOKERNEL_POLL_INTERVAL
+	 * slow pass --- runs every poll_interval
 	 */
 
 	cur_tsc = rdtsc();
 	now = (cur_tsc - start_tsc) / cycles_per_us;
-	if (now - last_time >= IOKERNEL_POLL_INTERVAL) {
+	if (now - last_time >= cfg.poll_interval) {
 		int i;
 
 		/* retrieve current network device tick */
@@ -659,6 +728,7 @@ int sched_init(void)
 
 	bitmap_init(sched_allowed_cores, cpu_count, false);
 
+	log_warn("IOKernel poll interval %d\n", cfg.poll_interval);
 	/*
 	 * first pass: scan and log CPUs
 	 */
